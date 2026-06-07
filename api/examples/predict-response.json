@@ -1,0 +1,11 @@
+{
+  "user_id": "usr_a1b2c3d4",
+  "model_version": "v1.3.0",
+  "cold_start": false,
+  "experiment_id": "exp_homepage_v3",
+  "items": [
+    { "product_id": "prod_001", "score": 0.94, "rank": 1 },
+    { "product_id": "prod_045", "score": 0.91, "rank": 2 },
+    { "product_id": "prod_112", "score": 0.88, "rank": 3 }
+  ]
+}

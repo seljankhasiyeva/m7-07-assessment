@@ -1,0 +1,9 @@
+{
+  "user_id": "usr_a1b2c3d4",
+  "limit": 20,
+  "headers": {
+    "X-API-Key": "sk-example",
+    "X-Model-Version": "v1.3.0",
+    "X-AB-Experiment": "exp_homepage_v3"
+  }
+}

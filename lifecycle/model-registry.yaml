@@ -1,0 +1,63 @@
+# Model Registry Specification — MLflow schema extension
+# All fields are required unless marked optional.
+
+registry:
+  backend: mlflow
+  tracking_uri: "https://mlflow.internal.example.com"
+  artifact_store: "s3://ml-artifacts/recommendations/"
+
+model_schema:
+  name: "retail-recommendations"
+  description: "Personalized product recommendations for mobile home screen"
+
+  required_tags:
+    model_version:
+      type: string
+      format: "v{MAJOR}.{MINOR}.{PATCH}"
+      example: "v1.3.0"
+    git_commit:
+      type: string
+      description: "SHA of the training code commit"
+    training_dataset:
+      type: string
+      description: "S3 URI of the training dataset snapshot"
+      example: "s3://ml-data/events/snapshots/2026-06-01/"
+    trained_by:
+      type: string
+      description: "CI job ID or engineer login"
+    framework:
+      type: string
+      enum: [pytorch, onnx]
+    offline_ndcg_at_10:
+      type: float
+      description: "NDCG@10 on held-out evaluation set"
+    offline_coverage:
+      type: float
+      description: "Fraction of users with ≥1 recommendation"
+    image_tag:
+      type: string
+      description: "Docker image tag used for serving this model"
+      example: "recommendations:v1.3.0-abc1234"
+
+  lifecycle_stages:
+    - name: development
+      description: "Training complete, offline eval passed"
+      transition_to: staging
+      automated_gate:
+        ndcg_at_10: ">= 0.42"
+        coverage: ">= 0.85"
+
+    - name: staging
+      description: "Shadow mode and load test passed"
+      transition_to: production
+      manual_approver: "ml-lead"
+      required_checks:
+        - shadow_p95_ms: "< 90"
+        - load_test_errors: "== 0"
+
+    - name: production
+      description: "Live traffic, canary then full rollout"
+      rollback_to: previous_production_version
+
+    - name: archived
+      description: "Superseded; weights retained for 90 days"

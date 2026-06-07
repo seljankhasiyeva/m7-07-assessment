@@ -1,0 +1,273 @@
+openapi: "3.1.0"
+
+info:
+  title: Recommendations API
+  version: "1.0.0"
+  description: >
+    Personalized product recommendations for the mobile retail app.
+    Supports synchronous single-user, async batch, and bulk sync endpoints.
+
+servers:
+  - url: https://api.example.com/v1
+
+paths:
+  /recommendations/{user_id}:
+    get:
+      operationId: getRecommendations
+      summary: Get recommendations for a single user (sync)
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: X-Model-Version
+          in: header
+          required: false
+          schema:
+            type: string
+          description: >
+            Pin request to a specific model version for A/B testing.
+            If omitted, the router assigns the version.
+        - name: X-AB-Experiment
+          in: header
+          required: false
+          schema:
+            type: string
+          description: A/B experiment ID for tracking.
+      responses:
+        "200":
+          description: Recommendations returned
+          headers:
+            X-Model-Version:
+              schema:
+                type: string
+              description: Model version that served this response
+            X-Request-ID:
+              schema:
+                type: string
+            X-Latency-Ms:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recommendations/batch:
+    post:
+      operationId: batchRecommendations
+      summary: Request recommendations for multiple users (async)
+      description: >
+        Accepts a list of user IDs. Returns a job ID immediately.
+        Results are available via GET /jobs/{job_id} when complete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchRequest"
+      responses:
+        "202":
+          description: Batch job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{job_id}:
+    get:
+      operationId: getJobStatus
+      summary: Poll async batch job status and results
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status and results (if complete)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Liveness and readiness probe
+      responses:
+        "200":
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+components:
+  schemas:
+    RecommendationResponse:
+      type: object
+      required: [user_id, items, model_version, cold_start]
+      properties:
+        user_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecommendedItem"
+        model_version:
+          type: string
+          example: "v1.3.0"
+        cold_start:
+          type: boolean
+          description: True if fallback (popularity-based) recommendations were used
+        experiment_id:
+          type: string
+          nullable: true
+
+    RecommendedItem:
+      type: object
+      required: [product_id, score, rank]
+      properties:
+        product_id:
+          type: string
+        score:
+          type: number
+          format: float
+        rank:
+          type: integer
+
+    BatchRequest:
+      type: object
+      required: [user_ids]
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: string
+          maxItems: 10000
+        limit:
+          type: integer
+          default: 20
+        callback_url:
+          type: string
+          format: uri
+          description: Optional webhook for job completion notification
+
+    JobAccepted:
+      type: object
+      required: [job_id, status, estimated_completion_seconds]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+        estimated_completion_seconds:
+          type: integer
+
+    JobResult:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, complete, failed]
+        results:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/RecommendationResponse"
+        error:
+          type: string
+          nullable: true
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        model_version:
+          type: string
+        feature_store:
+          type: string
+          enum: [ok, degraded, down]
+        cache:
+          type: string
+          enum: [ok, degraded, down]
+
+    ErrorResponse:
+      type: object
+      required: [error_code, message, request_id]
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+security:
+  - ApiKeyAuth: []

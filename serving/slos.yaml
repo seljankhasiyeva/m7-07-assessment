@@ -1,0 +1,63 @@
+# SLO Definitions — Retail Recommendations Service
+# Aligned with capacity-plan.md and monitoring/alerts.yaml
+
+service: retail-recommendations
+
+slos:
+  - name: availability
+    description: "Fraction of requests returning 2xx or expected 4xx"
+    target: 99.9%
+    window: 30d
+    measurement:
+      metric: http_requests_total
+      good: 'status_code =~ "2.." OR status_code == "404"'
+      total: "all requests"
+
+  - name: latency_p95
+    description: "p95 response latency end-to-end"
+    target: 120ms
+    objective: 99.5%
+    window: 30d
+    measurement:
+      metric: http_request_duration_ms
+      percentile: 95
+      threshold_ms: 120
+
+  - name: model_version_consistency
+    description: "All serving replicas must report the same X-Model-Version"
+    target: 100%
+    window: 1h
+    measurement:
+      metric: model_version_served
+      alert_on_mismatch: true
+      header: X-Model-Version
+
+  - name: cold_start_rate
+    description: "Fraction of requests served by fallback (cold-start)"
+    target_max: 5%
+    window: 24h
+    measurement:
+      metric: recommendations_cold_start_total
+      note: >
+        Cold-start rate above 5% may indicate feature store degradation
+        or a sudden influx of new users; investigate within 1 business day.
+
+error_budget:
+  availability:
+    monthly_minutes: 43.8
+    burn_rate_alert_thresholds:
+      - window: 1h
+        burn_rate: 14.4x
+        severity: critical
+      - window: 6h
+        burn_rate: 6x
+        severity: warning
+  latency_p95:
+    monthly_budget_violations: 0.5%
+    burn_rate_alert_thresholds:
+      - window: 1h
+        burn_rate: 14.4x
+        severity: critical
+      - window: 6h
+        burn_rate: 6x
+        severity: warning

@@ -1,0 +1,113 @@
+# Monitoring Alerts — Retail Recommendations Service
+# Burn-rate thresholds aligned with slos.yaml error_budget definitions.
+# X-Model-Version header referenced in api/openapi.yaml.
+
+groups:
+  - name: recommendations.availability
+    rules:
+      - alert: AvailabilityBurnRateCritical
+        expr: |
+          (
+            sum(rate(http_requests_total{job="recommendations", status_code!~"2..|404"}[1h]))
+            /
+            sum(rate(http_requests_total{job="recommendations"}[1h]))
+          ) > 0.001 * 14.4
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "Availability error budget burning at 14.4x (1h window)"
+          runbook: "https://wiki.internal/runbooks/recommendations-rollback"
+
+      - alert: AvailabilityBurnRateWarning
+        expr: |
+          (
+            sum(rate(http_requests_total{job="recommendations", status_code!~"2..|404"}[6h]))
+            /
+            sum(rate(http_requests_total{job="recommendations"}[6h]))
+          ) > 0.001 * 6
+        for: 15m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Availability error budget burning at 6x (6h window)"
+
+  - name: recommendations.latency
+    rules:
+      - alert: LatencyBurnRateCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_ms_bucket{job="recommendations"}[1h])) by (le)
+          ) > 120 * 14.4 / 100
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "p95 latency SLO burning at 14.4x"
+          runbook: "https://wiki.internal/runbooks/recommendations-rollback"
+
+      - alert: LatencyP95Exceeded
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_ms_bucket{job="recommendations"}[5m])) by (le)
+          ) > 150
+        for: 5m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "p95 latency > 150ms for 5 minutes — rollback trigger threshold"
+          runbook: "https://wiki.internal/runbooks/recommendations-rollback"
+
+  - name: recommendations.model
+    rules:
+      - alert: ModelVersionMismatch
+        expr: |
+          count(count by (model_version) (model_version_served{job="recommendations"})) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Multiple X-Model-Version values detected across replicas"
+          description: >
+            Replicas are serving different model versions. This may indicate
+            a stuck rollout or a partially failed deployment.
+            Check: kubectl get pods -n production -l app=recommendations
+
+      - alert: ModelVersionAbsent
+        expr: |
+          absent(model_version_served{job="recommendations"})
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-platform
+        annotations:
+          summary: "model_version_served metric missing — model may be down"
+
+      - alert: FeatureDriftDetected
+        expr: |
+          feature_psi_score{job="recommendations"} > 0.2
+        for: 30m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Feature PSI > 0.2 on {{ $labels.feature_name }} — retraining may be needed"
+
+      - alert: ColdStartRateHigh
+        expr: |
+          (
+            sum(rate(recommendations_cold_start_total{job="recommendations"}[1h]))
+            /
+            sum(rate(http_requests_total{job="recommendations"}[1h]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-platform
+        annotations:
+          summary: "Cold-start rate > 5% — feature store may be degraded"
